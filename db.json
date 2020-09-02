@@ -1,0 +1,18 @@
+{
+  "user": [
+    { "id": "abc123", "hasAccess": true },
+    { "id": "abc321", "hasAccess": false }
+  ],
+  "reports": [
+    {
+      "id": 1,
+      "title": "bitcoin",
+      "limit": 1000
+    },
+    {
+      "id": 2,
+      "title": "stats",
+      "limit": 100
+    }
+  ]
+}
