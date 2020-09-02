@@ -10,10 +10,10 @@ import {
   onInitializeReportDataFetch,
 } from './store';
 import ChainData from './features/ChainData.js/component';
-
+import Todo from './features/Todo/component';
 const App = () => {
   const dispatch = useDispatch();
-  const reportData = useSelector((x) => x.reportData.data);
+  const data = useSelector((x) => x.reportData.data);
   const stopDataFetch = compose(dispatch, onStopFetch);
   const startF = compose(dispatch, onInitializeReportDataFetch);
   const onFetchUser = compose(dispatch, fetchUserActon);
@@ -39,14 +39,9 @@ const App = () => {
           Learn React
         </a>
       </header>
-      <div>
-        <ChainData
-          data={reportData}
-          chain="BTC"
-          onClick={stopDataFetch}
-          onInitFetch={startF}
-        />
-      </div>
+      <div>{data ? <Todo {...data} /> : null}</div>
+      <button onClick={stopDataFetch}>Stop Data Fetch</button>
+      <button onClick={startF}>Start Fetch</button>
     </div>
   );
 };
