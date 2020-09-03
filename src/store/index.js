@@ -10,30 +10,43 @@ import {
   call,
   put,
   select,
-  takeEvery,
   takeLatest,
 } from 'redux-saga/effects';
 import axios from 'axios';
-
-const createUrl = (endpoint = '') => (params = '') =>
-  `${process.env.REACT_APP_BLOCKCHAIR_API_URL}${endpoint}`.concat(params);
-
-const bitcoinStatsEndpoint = createUrl('bitcoin')();
-const API_CALLS = {
-  fetchStats: createUrl('stats'),
-  fetchBitcoinStats: createUrl('stats/bitcoin'),
-  createUrlWithoutParams: (x) => createUrl(`stats/${x}`)(),
-};
+const JSON_API_URL = 'https://jsonplaceholder.typicode.com/todos/';
 
 const getReportConfig = ({ reportConfig }) => reportConfig;
-const getReports = ({ reports }) => reports;
-const getReportTitle = createSelector(getReportConfig, path(['data']));
-const getCurrentReport = (index) => createSelector(getReports, (x) => x[index]);
+const getReportConfigData = createSelector(getReportConfig, path(['data']));
+const users = [
+  {
+    id: 'abc123',
+    hasAccess: true,
+  },
+  { id: 'efg456', hasAccess: false },
+];
 
-const head = (arr = []) => {
-  const [first, ...rest] = arr;
-  return first;
+const checkUserId = ({ id }) => (x) => id === x.id;
+const checkUserAccess = (user) =>
+  !user.hasAccess
+    ? { id: user.id, isAuthorized: false }
+    : { id: user.id, isAuthorized: true };
+
+const trace = (label) => (val) => {
+  console.log(`label::${label}`, val);
+  return val;
 };
+const composeFns = (...fns) => (initial) =>
+  fns.reduceRight((val, fn) => fn(val), initial);
+const findUser = (user) => (arr = []) => arr.find(checkUserId(user));
+
+const checkUserAuth = (user) =>
+  composeFns(checkUserAccess, trace('after checksUserId'), findUser(user));
+
+const getReports = ({ reports }) => reports;
+const getReportDataState = ({ reportData }) => reportData;
+const getReportData = createSelector(getReportDataState, path(['data']));
+const getReportTitle = createSelector(getReportData, path(['title']));
+const getFetchCount = createSelector(getReportDataState, path(['fetchCount']));
 
 const actionTypes = {
   FETCH_USER: 'FETCH_USER',
@@ -60,9 +73,13 @@ const {
   STOP_REPORT_DATA_FETCH,
 } = actionTypes;
 
-const fetchUserActon = (user) => ({
+const fetchCurrentUserAction = () => ({
   type: FETCH_USER,
-  payload: user,
+});
+
+const fetchUserSuccessAction = (id) => ({
+  type: FETCH_USER_SUCCESS,
+  payload: { id },
 });
 
 const onStopFetch = () => ({ type: STOP_REPORT_DATA_FETCH });
@@ -72,11 +89,29 @@ const onFetchReportConfig = (reportId) => ({
   payload: reportId,
 });
 
+const onFetchReportConfigSuccess = (response) => ({
+  type: FETCH_REPORT_CONFIG_SUCCESS,
+  payload: response.data,
+});
+
+const onFetchReportConfigFailure = (error) => ({
+  type: FETCH_REPORT_CONFIG_FAILURE,
+  payload: error,
+});
+
+const onFetchReportDataSuccess = (response) => ({
+  type: FETCH_REPORT_DATA_SUCCESS,
+  payload: response.data,
+});
+
 const onInitializeReportDataFetch = () => ({ type: FETCH_REPORT_DATA });
 
 export {
+  getFetchCount,
+  getReportData,
+  getReportTitle,
   onFetchReportConfig,
-  fetchUserActon,
+  fetchCurrentUserAction,
   onStopFetch,
   onInitializeReportDataFetch,
 };
@@ -88,57 +123,41 @@ const fetchData = (url) =>
     .catch((err) => err);
 
 const getUser = (id) => localStorage.getItem(id);
-const setUser = (id) => localStorage.setItem('id', id);
 
 function* userAuthWatcher() {
-  yield call(setUser, 'abc123');
   yield takeLatest(FETCH_USER, userAuthSaga);
 }
 
-function* userAuthSaga(name) {
-  console.log({ name });
+function* userAuthSaga() {
   try {
     const currentUser = yield call(getUser, 'id');
-    console.log('user found', { currentUser });
-    yield put({ type: FETCH_USER_SUCCESS, payload: currentUser });
+    yield put(fetchUserSuccessAction(currentUser));
   } catch (e) {
     yield put({ type: FETCH_USER_FAILURE, payload: e });
   }
 }
 
-const API_URL = 'https://my-json-server.typicode.com/typicode/demo/';
-const JSON_API_URL = 'https://jsonplaceholder.typicode.com/todos/';
-
-function* reportConfigSaga(action) {
+function* reportConfigSaga() {
   try {
     const response = yield call(fetchData, `${JSON_API_URL}`);
-    console.log({ reportConfigResponse: response });
-    yield put({
-      type: FETCH_REPORT_CONFIG_SUCCESS,
-      payload: response.data,
-    });
-    yield put({ type: FETCH_REPORT_DATA });
+    yield put(onFetchReportConfigSuccess(response));
+    yield put(onInitializeReportDataFetch());
   } catch (e) {
-    yield put({ type: FETCH_REPORT_CONFIG_FAILURE, payload: e });
+    yield put(onFetchReportConfigFailure(e));
   }
 }
-function* reportDataSaga(action) {
+function* reportDataSaga() {
   while (true) {
     try {
-      console.log(action);
-      const currentReport = yield select((x) => x.reportConfig.data);
-      console.log({ currentReport });
-      const response = yield call(() =>
-        axios
-          .get(
-            `${JSON_API_URL}/${Math.floor(
-              Math.random() * currentReport.length - 1
-            )}`
-          )
-          .then((res) => res.data)
+      const currentReportList = yield select(getReportConfigData);
+      const response = yield call(
+        fetchData,
+        `${JSON_API_URL}/${Math.floor(
+          Math.random() * currentReportList.length - 1
+        )}`
       );
-      yield put({ type: FETCH_REPORT_DATA_SUCCESS, payload: response });
-      yield delay(10000);
+      yield put(onFetchReportDataSuccess(response));
+      yield delay(2000);
     } catch (e) {
       yield put({ type: FETCH_REPORT_DATA_FAILURE, payload: e });
       yield put({ type: STOP_REPORT_DATA_FETCH });
@@ -168,31 +187,51 @@ function* rootSaga() {
 }
 
 const defaultState = {
-  user: { loading: false, error: null, data: null },
+  userState: {
+    currentUser: {
+      loading: false,
+      error: null,
+      id: null,
+      isAuthorized: false,
+    },
+    allUsers: users,
+  },
   reportConfig: { loading: false, error: null, data: null },
-  reportData: { loading: false, error: null, data: [] },
-  reports: ['bitcoin', 'ethereum', 'bitcoin-cash'],
+  reportData: { loading: false, error: null, data: [], fetchCount: 0 },
 };
 
-const userAuthenticationReducer = (state = defaultState.user, action = {}) => {
+const userAuthenticationReducer = (
+  state = defaultState.userState,
+  action = {}
+) => {
   const { payload, type } = action;
+  console.log({ userState: state });
   switch (type) {
     case FETCH_USER:
       return {
         ...state,
-        loading: true,
+        currentUser: {
+          ...state.currentUser,
+          loading: true,
+        },
       };
     case FETCH_USER_SUCCESS:
       return {
         ...state,
-        loading: false,
-        data: payload,
+        currentUser: {
+          ...state.currentUser,
+          loading: false,
+          ...checkUserAuth(payload)(state.allUsers),
+        },
       };
     case FETCH_USER_FAILURE:
       return {
         ...state,
-        loading: false,
-        error: payload,
+        currentUser: {
+          ...state.currentUser,
+          loading: false,
+          error: payload,
+        },
       };
     default:
       return state;
@@ -212,6 +251,7 @@ const reportDataReducer = (state = defaultState.reportData, action = {}) => {
         ...state,
         loading: false,
         data: payload,
+        fetchCount: state.fetchCount + 1,
       };
     case FETCH_REPORT_DATA_FAILURE:
       return {
@@ -252,18 +292,10 @@ const reportConfigReducer = (
   }
 };
 
-const reportsReducer = (state = defaultState.reports, action = {}) => {
-  const { type } = action;
-  switch (type) {
-    default:
-      return state;
-  }
-};
 const rootReducer = combineReducers({
-  user: userAuthenticationReducer,
+  userState: userAuthenticationReducer,
   reportConfig: reportConfigReducer,
   reportData: reportDataReducer,
-  reports: reportsReducer,
 });
 
 const sagaMiddleware = createSagaMiddleware();

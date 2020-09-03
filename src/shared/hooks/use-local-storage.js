@@ -26,3 +26,5 @@ const configureLocalStorage = (key) => (initialValue) => {
 };
 
 export { configureLocalStorage };
+
+export default configureLocalStorage;
